@@ -97,6 +97,7 @@ char serialInBuffer[32];
 int serialCount;
 int load_song_num = 0;
 int* song_len;
+int* song_speed;
 
 int mode = MODE_NON;
 
@@ -123,6 +124,7 @@ int note_i = 0;
 int correct[50];
 int taiko_point = 0;
 int taiko_or_not = 0;
+int tmp_taiko_or_not = 0;
 
 constexpr int kTensorArenaSize = 60 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
@@ -134,14 +136,6 @@ tflite::MicroInterpreter* interpreter;
 TfLiteTensor* model_input;
 int input_length;
 TfLiteStatus setup_status;
-/*void FXOS8700CQ_readRegs(int addr, uint8_t * data, int len) {
-   char t = addr;
-   i2c.write(m_addr, &t, 1, true);
-   i2c.read(m_addr, (char *)data, len);
-}
-void FXOS8700CQ_writeRegs(uint8_t * data, int len) {
-   i2c.write(m_addr, (char *)data, len);
-}*/
 void initial(){
   error_reporter = &micro_error_reporter;
   model = tflite::GetModel(g_magic_wand_model_data);
@@ -188,61 +182,6 @@ void initial(){
   }
   error_reporter->Report("Set up successful...\n");
 }
-/*int determine_taiko_note(float now_z,float last_z){
-    if(now_z-last_z>1.8){
-        return 2;
-    }
-    else if (now_z-last_z>0.6){
-        return 1;
-    }
-    else {
-        return 0;
-    }
-}*/
-/*void accelerometer(){
-    float last_z = 1;
-    pc.baud(115200);
-   uint8_t who_am_i, data[2], res[6];
-   int16_t acc16;
-   float t[3];
-   FXOS8700CQ_readRegs( FXOS8700Q_CTRL_REG1, &data[1], 1);
-   data[1] |= 0x01;
-   data[0] = FXOS8700Q_CTRL_REG1;
-   FXOS8700CQ_writeRegs(data, 2);
-   FXOS8700CQ_readRegs(FXOS8700Q_WHOAMI, &who_am_i, 1);
-    while(1){
-        FXOS8700CQ_readRegs(FXOS8700Q_OUT_X_MSB, res, 6);
-        acc16 = (res[0] << 6) | (res[1] >> 2);
-
-        if (acc16 > UINT14_MAX/2)
-            acc16 -= UINT14_MAX;
-        t[0] = ((float)acc16) / 4096.0f;
-
-        acc16 = (res[2] << 6) | (res[3] >> 2);
-        if (acc16 > UINT14_MAX/2)
-            acc16 -= UINT14_MAX;
-        t[1] = ((float)acc16) / 4096.0f;
-
-        acc16 = (res[4] << 6) | (res[5] >> 2);
-        if (acc16 > UINT14_MAX/2)
-            acc16 -= UINT14_MAX;
-        t[2] = ((float)acc16) / 4096.0f;
-        n=determine_taiko_note(t[2],last_z);
-        last_z = t[2];
-        //pc.printf("%d\r\n",n);
-        wait(0.1);      
-   }
-}*/
-
-/*void playNote(int freq,int taiko,int k){
-    for(int i=0;i<kAudioTxBufferSize;i++){
-        waveform[i] = (int16_t) (sin((double)i * 2. * M_PI / (double) (kAudioSampleFrequency / freq)) * ((1<<16) - 1));
-    }
-    for(int j=0;j<kAudioSampleFrequency / kAudioTxBufferSize;++j){
-        audio.spk.play(waveform,kAudioTxBufferSize);
-    }
-    
-}*/
 void playNote(){
     for(int i=0;i<kAudioTxBufferSize;i++){
         waveform[i] = (int16_t) (sin((double)i * 2. * M_PI / (double) (kAudioSampleFrequency / freq)) * ((1<<16) - 1));
@@ -288,16 +227,33 @@ void playNote(){
     }
 }
 void play_song(int index){
+  float k = (song_len[index])*1./16;
+  float speed = song_speed[index]*1./10;
+  float wait_time;
+  float a = k;
+  uLCD.cls();
+  uLCD.textbackground_color(BLACK);
+  uLCD.printf("Song Name:\r\n\r\n%s\r\n\r\n",song_name[song_index_playing]);
+  uLCD.printf("Song Length:%d\r\n\r\n",song_len[song_index_playing]);
   song_playing_flg = true;
   idC=queue4.call_every(1,playNote);
   for(int i=0;i<song_len[index];i++){  
     pc.printf("%d\r\n",taiko[index][i]);   
     freq=song[index][i];
     now_taiko_note = taiko[index][i];
+    wait_time = note_len[index][i]*speed;
     note_i = i;
-    wait(note_len[index][i]-0.1);
+    wait(wait_time-0.1);
     freq = 0;
     wait(0.1);
+    if(cut_song == true){
+      cut_song = false;
+      break;
+    }
+    if(i+1>=a){
+      uLCD.printf("*");
+      a+=k;
+    } 
   }
   note_i = 0;
   
@@ -310,22 +266,7 @@ void play_song(int index){
   }
   taiko_or_not = 0; 
   song_playing_flg = false;
-} /*
-void play_song_thread(){
-  int stop;
-    //if(now_loadong_song_flg == false){
-      if(load_song_num!=0&&song_playing_flg == false){
-        //stop = queue5.call(play_song,song_index_playing);
-        play_song(song_index_playing);
-        if(song_index_playing == load_song_num-1){
-          song_index_playing = 0;
-        }
-        else{
-          song_index_playing++;
-        }
-      }  
- //}
-}*/
+} 
 void load_song(int index,int len){
   int i=0;
   serialCount = 0;
@@ -392,6 +333,21 @@ void load_song_2(){
         if(serialCount == 4){
           serialInBuffer [serialCount] = '\0';
           song_len[i] = (int)atof(serialInBuffer);
+          serialCount = 0;
+          break;
+        }
+      }
+    }
+  }
+  song_speed = new int[load_song_num];
+  for (int i=0;i<load_song_num;i++){
+    while(1){
+      if(pc.readable()){
+        serialInBuffer[serialCount] = pc.getc();
+        serialCount++;
+        if(serialCount == 4){
+          serialInBuffer [serialCount] = '\0';
+          song_speed[i] = (int)atof(serialInBuffer);
           serialCount = 0;
           break;
         }
@@ -471,17 +427,116 @@ bool comfirm_flg = false;
 bool in_return_gesture_flg =false;
 bool scroll_songs = false;
 
+void print_song_list_page(){
+  int page = 0;
+  uLCD.cls();
+  uLCD.textbackground_color(BLACK);
+  uLCD.printf("   Scroll Song    \r\n");
+  if(load_song_num == 0){
+    uLCD.printf("NO SONG \r\n");
+    uLCD.printf("PLEASE LOAD\r\n");
+  }
+  if((tmp_song_index_playing/3) == 0){
+    page = 0;
+  }
+  else if((tmp_song_index_playing/3) == 1){
+    page = 1;
+  }
+  else if((tmp_song_index_playing/3) == 2){
+    page = 2;
+  }
+  else if((tmp_song_index_playing/3) == 3){
+    page = 3;
+  }
 
+  if(page == 0){
+    for(int i=0;i<3;i++){
+      if(i==load_song_num){
+        break;
+      }
+      if(i==tmp_song_index_playing){
+        uLCD.textbackground_color(BLUE);
+      }
+      uLCD.printf("%d.\r\n%s\r\n\r\n",i+1,song_name[i]);
+      uLCD.textbackground_color(BLACK);
+    }
+  }
+  if(page == 1){
+    for(int i=3;i<6;i++){
+      if(i==load_song_num){
+        break;
+      }
+      if(i==tmp_song_index_playing){
+        uLCD.textbackground_color(BLUE);
+      }
+      uLCD.printf("%d.\r\n%s\r\n\r\n",i+1,song_name[i]);
+      uLCD.textbackground_color(BLACK);
+    }
+  }
+  if(page == 2){
+    for(int i=6;i<9;i++){
+      if(i==load_song_num){
+        break;
+      }
+      if(i==tmp_song_index_playing){
+        uLCD.textbackground_color(BLUE);
+      }
+      uLCD.printf("%d.\r\n%s\r\n\r\n",i+1,song_name[i]);
+      uLCD.textbackground_color(BLACK);
+    }
+  }
+  if(page == 3){
+    for(int i=9;i<12;i++){
+      if(i==load_song_num){
+        break;
+      }
+      if(i==tmp_song_index_playing){
+        uLCD.textbackground_color(BLUE);
+      }
+      uLCD.printf("%d.\r\n%s\r\n\r\n",i+1,song_name[i]);
+      uLCD.textbackground_color(BLACK);
+    }
+  }
+}
+void print_taiko_or_not(){
+  uLCD.cls();
+  uLCD.textbackground_color(BLACK);
+  uLCD.printf("Song Name:\r\n\r\n%s\r\n\r\n",song_name[song_index_playing]);
+  uLCD.printf("Song Length:%d\r\n\r\n",song_len[song_index_playing]);
+  uLCD.printf("Shack K66F To\r\nSelect Taiko Or\r\nSong Playing mode\r\n\r\n");
+  if(tmp_taiko_or_not == 0){
+    uLCD.textbackground_color(BLUE);
+    uLCD.printf("Song Playing \r\n");
+    uLCD.textbackground_color(BLACK);
+    uLCD.printf("Taiko \r\n");
+  }
+  else if (tmp_taiko_or_not == 1){
+    uLCD.printf("Song Playing \r\n");
+    uLCD.textbackground_color(BLUE);
+    uLCD.printf("Taiko \r\n");
+    uLCD.textbackground_color(BLACK);
+  }
+}
 int new_return_gesture(){
   int cls_count = 0;
+  int scroll_page = 0;
   comfirm_flg = false;
   in_return_gesture_flg = true;
  // pc.printf("ggg\r\n"); 
   bool should_clear_buffer = false;
   bool got_data = false;
   int gesture_index;
-  int taiko_or_not = 0;
+  tmp_taiko_or_not = 0;
   tmp_song_index_playing = song_index_playing;
+  if(song_playing_flg==true){
+    cut_song =true;
+  }
+  if(scroll_songs == true){
+    print_song_list_page();
+  }
+  else if (taiko_flg == true){
+    print_taiko_or_not();
+  }
   while (true) {
     // Attempt to read new data from the accelerometer
     got_data = ReadAccelerometer(error_reporter, model_input->data.f,
@@ -505,28 +560,27 @@ int new_return_gesture(){
     // Produce an output
     int tmp_gesture_index;
     if (gesture_index < label_num) {
-      if (scroll_songs == true){
+      if (scroll_songs == true){  
         if(gesture_index == 0){
           if(load_song_num == 0){
             tmp_song_index_playing = 0;
-            uLCD.printf("NO SONG \r\n");
-            uLCD.printf("PLEASE LOAD\r\n");
           }
           else{
             if(tmp_song_index_playing==0){
               tmp_song_index_playing = load_song_num-1;
             }
             else if(tmp_song_index_playing != 0){
-              tmp_song_index_playing = tmp_song_index_playing-1;
+              tmp_song_index_playing = tmp_song_index_playing-1;  
             }
-          }
-          uLCD.printf("now is %d \r\n",tmp_song_index_playing);
+            if((tmp_song_index_playing/3) == 0){
+              scroll_page = 0;
+            }
+            print_song_list_page();
+          }        
         }
         else if (gesture_index == 1){
           if(load_song_num == 0){
             tmp_song_index_playing = 0;
-            uLCD.printf("NO SONG \r\n");
-            uLCD.printf("PLEASE LOAD\r\n");
           }
           else{
             if(tmp_song_index_playing==load_song_num-1){
@@ -535,23 +589,24 @@ int new_return_gesture(){
             else if(tmp_song_index_playing != load_song_num-1){
               tmp_song_index_playing = tmp_song_index_playing+1;
             }
-          }
-          uLCD.printf("now is %d \r\n",tmp_song_index_playing);
+            print_song_list_page();
+          }       
         }
         else if (gesture_index == 2){
+          uLCD.cls();
           uLCD.printf("press sw3\r\n");
           uLCD.printf("to load song\r\n");
         }
       }
       else if (taiko_flg == true){
         if(gesture_index == 2){
-          if(taiko_or_not == 0){
-            taiko_or_not = 1;
-            uLCD.printf("now is %d\r\n",taiko_or_not);
+          if(tmp_taiko_or_not == 0){
+            tmp_taiko_or_not = 1;
+            print_taiko_or_not();
           }
-          else if (taiko_or_not == 1){
-            taiko_or_not = 0;
-            uLCD.printf("now is %d\r\n",taiko_or_not);
+          else if (tmp_taiko_or_not == 1){
+            tmp_taiko_or_not = 0;
+            print_taiko_or_not();
           }
         }
       }
@@ -600,7 +655,7 @@ int new_return_gesture(){
       else if (taiko_flg == true){
         comfirm_flg =false;
         in_return_gesture_flg = false;
-        return taiko_or_not;
+        return tmp_taiko_or_not;
       }
       else {
         comfirm_flg =false;
@@ -634,11 +689,8 @@ void mode_select(){
       else if(song_index_playing != 0){
         song_index_playing = song_index_playing-1;
       }
+      stop = queue5.call(play_song,song_index_playing);
     }
-    uLCD.cls();
-    uLCD.printf("%s\r\n",song_name[song_index_playing]);
-    uLCD.printf("Song Length:%d\r\n",song_len[song_index_playing]);
-    stop = queue5.call(play_song,song_index_playing);
     //play_song(song_index_playing);
     mode = MODE_NON;
   }
@@ -653,11 +705,8 @@ void mode_select(){
       else if(song_index_playing != load_song_num-1){
         song_index_playing = song_index_playing+1;
       }
-    }
-    uLCD.cls();
-    uLCD.printf("%s\r\n",song_name[song_index_playing]);
-    uLCD.printf("Song Length:%d\r\n",song_len[song_index_playing]);
-    stop = queue5.call(play_song,song_index_playing);
+      stop = queue5.call(play_song,song_index_playing);
+    }  
     //play_song(song_index_playing);
     mode = MODE_NON;
   }
@@ -668,11 +717,7 @@ void mode_select(){
     if (load_song_flg == true){
       load_song_flg = false;
     }
-    else {
-      uLCD.cls();
-      uLCD.printf("%s\r\n",song_name[song_index_playing]);
-      uLCD.printf("Song Length:%d\r\n",song_len[song_index_playing]);
-      uLCD.printf("shack k66f to select Taiko or song playing\r\n");
+    else {    
       taiko_flg = true;
       taiko_or_not = new_return_gesture();
       if(taiko_or_not == 1){
@@ -737,60 +782,10 @@ void main_thread(){
   //}
 }
 
-/*int song_test[42] = {
-    261, 261, 392, 392, 440, 440, 392,
-    349, 349, 330, 330, 294, 294, 261,
-    392, 392, 349, 349, 330, 330, 294,
-    392, 392, 349, 349, 330, 330, 294,
-    261, 261, 392, 392, 440, 440, 392,
-    349, 349, 330, 330, 294, 294, 261
-};
-int note_Length_test[42]={
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2,
-    1, 1, 1, 1, 1, 1, 2
-};*/
-
-
-/*void play_song_thread(){
-  while(1){
-    if(state == STATE_SONG_PLAY){
-      if (song_playing_flg == false)
-          play_song(song_index_playing);
-    }
-    else if(state!=STATE_SONG_PLAY){
-      if (song_playing_flg == true){
-        cut_song = true;
-      }
-    }
-    if (backward == true){
-      if(song_index_playing != 0){
-        song_index_playing -=1;
-      }
-      else if (song_index_playing == 0){
-        song_index_playing = load_song_num-1;
-      }
-      cut_song = true;
-      backward = false;
-    }
-    if (forwar == true){
-      if(song_index_playing != load_song_num-1){
-        song_index_playing +=1;
-      }
-      else if (song_index_playing == load_song_num-1){
-        song_index_playing = 0;
-      }
-      cut_song = true;
-      forwar = false;
-    }
-  } 
-}*/
 
 int main(int argc, char* argv[]) {
   initial();
+  greenled = 1;
   debounce_sw2.start();
   debounce_sw3.start();
   t.start(callback(&queue1,&EventQueue::dispatch_forever));
