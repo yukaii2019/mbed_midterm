@@ -75,6 +75,7 @@ Thread t3(osPriorityNormal);
 Thread t4(osPriorityNormal);
 Thread t5(osPriorityHigh);
 Thread t6(osPriorityNormal);
+Thread t7(osPriorityNormal);
 
 
 EventQueue queue1(32*EVENTS_EVENT_SIZE);
@@ -83,12 +84,15 @@ EventQueue queue3(32*EVENTS_EVENT_SIZE);
 EventQueue queue4(32*EVENTS_EVENT_SIZE);
 EventQueue queue5(32*EVENTS_EVENT_SIZE);
 EventQueue queue6(32*EVENTS_EVENT_SIZE);
+EventQueue queue7(32*EVENTS_EVENT_SIZE);
 
 InterruptIn sw2(SW2);
 InterruptIn sw3(SW3);
 DigitalOut greenled(LED2);
 Timer debounce_sw2;
 Timer debounce_sw3;
+Timer timer;
+Timer timer_2;
 int** song;
 int** note_len;
 int** taiko;
@@ -98,6 +102,7 @@ int serialCount;
 int load_song_num = 0;
 int* song_len;
 int* song_speed;
+int* correct;
 
 int mode = MODE_NON;
 
@@ -121,11 +126,10 @@ int n;
 int freq = 0;
 int now_taiko_note = 0;
 int note_i = 0;
-int correct[50];
-int taiko_point = 0;
 int taiko_or_not = 0;
 int tmp_taiko_or_not = 0;
-
+int max_song_len = -100;
+bool queue7finish = false;
 bool comfirm_flg = false;
 bool in_return_gesture_flg =false;
 bool scroll_songs = false;
@@ -186,6 +190,41 @@ void initial(){
   }
   error_reporter->Report("Set up successful...\n");
 }
+void taiko_display2(float last_time){
+  uLCD.cls();
+  timer_2.reset();
+  while(timer_2.read()<last_time){
+    if(now_taiko_note == 1){
+        uLCD.filled_rectangle(0,0,10,10,RED);
+    }
+    else if(now_taiko_note == 2){
+        uLCD.filled_rectangle(0,0,10,10,BLUE);
+    }
+    else{
+        uLCD.filled_rectangle(0,0,10,10,BLACK);
+    }
+    if(TAIKO_NOTE == 1){
+        if(timer.read_ms()>200){
+            uLCD.filled_circle(64,64,50,RED);
+            uLCD.filled_circle(64,64,30,BLACK);
+            uLCD.filled_circle(64,64,50,BLACK);
+            timer.reset();
+        }
+    }
+
+    else if (TAIKO_NOTE == 2){
+        if(timer.read_ms()>200){
+            uLCD.filled_circle(64,64,50,BLUE);
+            uLCD.filled_circle(64,64,30,BLACK);
+            uLCD.filled_circle(64,64,50,BLACK);
+            timer.reset();
+        }
+    }
+  }
+  timer_2.reset();  
+  uLCD.filled_rectangle(0,0,10,10,BLACK);
+  queue7finish = true;
+} 
 void playNote(){
     for(int i=0;i<kAudioTxBufferSize;i++){
         waveform[i] = (int16_t) (sin((double)i * 2. * M_PI / (double) (kAudioSampleFrequency / freq)) * ((1<<16) - 1));
@@ -200,7 +239,6 @@ void playNote(){
         }
         else if(TAIKO_NOTE==1&& correct[note_i] == 0){
           correct[note_i] = 1;
-          taiko_point++;
         }
       }
       else if(now_taiko_note ==2){
@@ -209,25 +247,27 @@ void playNote(){
         }
         else if(TAIKO_NOTE==1&& correct[note_i] == 0){
           correct[note_i] = 2;
-          taiko_point++;
         }
-      }      
-      if(TAIKO_NOTE == 1){
-        uLCD.cls();
-        uLCD.background_color(RED);
-        uLCD.cls();
-        //wait(0.1);
-        uLCD.background_color(BLACK);
-        uLCD.cls();
-      }
-      if(TAIKO_NOTE == 2){
-        uLCD.cls();
-        uLCD.background_color(BLUE);
-        uLCD.cls();
-        //wait(0.1);
-        uLCD.background_color(BLACK);
-        uLCD.cls();
-      }
+      }   
+      else if(now_taiko_note == 0 && correct[note_i] == 0){
+          correct[note_i] = 3;
+      }    
+      // if(TAIKO_NOTE == 1){
+      //   uLCD.cls();
+      //   uLCD.background_color(RED);
+      //   uLCD.cls();
+      //   //wait(0.1);
+      //   uLCD.background_color(BLACK);
+      //   uLCD.cls();
+      // }
+      // if(TAIKO_NOTE == 2){
+      //   uLCD.cls();
+      //   uLCD.background_color(BLUE);
+      //   uLCD.cls();
+      //   //wait(0.1);
+      //   uLCD.background_color(BLACK);
+      //   uLCD.cls();
+      // }
     }
 }
 void play_song(int index){
@@ -235,14 +275,35 @@ void play_song(int index){
   float speed = song_speed[index]*1./100;
   float wait_time;
   float a = k;
+  float last_time = 0;    
+  for(int i=0;i<song_len[index];i++){
+      last_time += note_len[index][i];
+  }
+  last_time = last_time*speed;
   if (in_return_gesture_flg == false && now_loadong_song_flg == false){
     uLCD.cls();
     uLCD.textbackground_color(BLACK);
-    uLCD.printf("Song Name:\r\n\r\n%s\r\n\r\n",song_name[song_index_playing]);
-    uLCD.printf("Song Length:%d\r\n\r\n",song_len[song_index_playing]);
+    uLCD.printf("Song Name:\r\n\r\n%s\r\n\r\n",song_name[song_index_playing]);    
+    uLCD.printf("Song Length:%1.0f s\r\n\r\n",last_time);
+    if(taiko_or_not == 1){
+      uLCD.text_width(4);
+      uLCD.text_height(4);
+      uLCD.color(RED);
+      for (int i=5; i>=0; --i) {
+          uLCD.locate(1,2);
+          uLCD.printf("%2D",i);
+          wait(1);
+      }
+    }
   }
+  uLCD.text_width(1);
+  uLCD.text_height(1);
+  uLCD.color(GREEN);
   song_playing_flg = true;
   idC=queue4.call_every(1,playNote);
+  if(taiko_or_not == 1){
+    queue7.call(taiko_display2,last_time);
+  }      
   for(int i=0;i<song_len[index];i++){  
     pc.printf("%d\r\n",taiko[index][i]);   
     freq=song[index][i];
@@ -253,7 +314,7 @@ void play_song(int index){
     freq = 0;
     wait(0.05);
     if(i+1>=a){
-      if (in_return_gesture_flg == false && now_loadong_song_flg == false){
+      if (in_return_gesture_flg == false && now_loadong_song_flg == false && taiko_or_not == 0){
         uLCD.printf("*");
       }
       a+=k;
@@ -274,11 +335,31 @@ void play_song(int index){
     queue5.call(play_song,song_index_playing);
   }
   if(taiko_or_not == 1){
+    while(1){
+      if(queue7finish == true){
+        queue7finish =false;
+        break;
+      }
+      else{
+        wait(0.5);
+      }
+    }
+    int c=0;
+    int b=0;
     for (int i=0;i<song_len[index];i++){
         pc.printf("%d ",correct[i]);
         uLCD.printf("%d ",correct[i]);
+        if(correct[i] == 1){
+          c++;
+        }
+        else if (correct[i] == 2 or correct[i] == 0){
+          b++;
+        } 
         correct[i] = 0;
     }
+    uLCD.printf("\r\nCorrect: %d\r\n\r\n",c);
+    uLCD.printf("Bad: %d\r\n\r\n",b);
+    uLCD.printf("Point: %f\r\n\r\n",(c*1./(c+b))*100);
   }
   taiko_or_not = 0; 
   song_playing_flg = false;
@@ -350,6 +431,9 @@ void load_song_2(){
         if(serialCount == 4){
           serialInBuffer [serialCount] = '\0';
           song_len[i] = (int)atof(serialInBuffer);
+          if(song_len[i]>max_song_len){
+            max_song_len = song_len[i];
+          }
           serialCount = 0;
           break;
         }
@@ -370,6 +454,10 @@ void load_song_2(){
         }
       }
     }
+  }
+  correct = new int [max_song_len];
+  for(int i=0;i<max_song_len;i++){
+    correct [i] = 0;
   }
   song = new int* [load_song_num];
   for(int i=0;i<load_song_num;i++){
@@ -437,6 +525,7 @@ void unload_song(){
 
     delete [] song_speed;
     delete [] song_len;
+    delete [] correct;
     load_song_num = 0;
     mode = MODE_NON;
     song_playing_flg = false;
@@ -447,12 +536,10 @@ void unload_song(){
     freq = 0;
     now_taiko_note = 0;
     note_i = 0;
-    taiko_point = 0;
     taiko_or_not = 0;
     tmp_taiko_or_not = 0;
-    taiko_point = 0;
-    taiko_or_not = 0;
-    tmp_taiko_or_not = 0;
+    max_song_len = -100;
+    queue7finish = false;
   }   
 }
 void print_song_list_page(){
@@ -912,6 +999,8 @@ void main_thread(){
 int main(int argc, char* argv[]) {
   initial();
   greenled = 1;
+  timer.start();
+  timer_2.start();
   debounce_sw2.start();
   debounce_sw3.start();
   t.start(callback(&queue1,&EventQueue::dispatch_forever));
@@ -920,6 +1009,7 @@ int main(int argc, char* argv[]) {
   t4.start(callback(&queue4,&EventQueue::dispatch_forever));
   t5.start(callback(&queue5,&EventQueue::dispatch_forever));
   t6.start(callback(&queue6,&EventQueue::dispatch_forever));
+  t7.start(callback(&queue7,&EventQueue::dispatch_forever));
   sw2.fall(call_mode_select);  
   sw3.fall(call_comfirm);
   queue3.call(main_thread);
