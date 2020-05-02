@@ -73,7 +73,7 @@ Thread t(osPriorityNormal);
 Thread t2(osPriorityNormal);
 Thread t3(osPriorityNormal);
 Thread t4(osPriorityNormal);
-Thread t5(osPriorityNormal);
+Thread t5(osPriorityHigh);
 Thread t6(osPriorityNormal);
 
 
@@ -125,6 +125,10 @@ int correct[50];
 int taiko_point = 0;
 int taiko_or_not = 0;
 int tmp_taiko_or_not = 0;
+
+bool comfirm_flg = false;
+bool in_return_gesture_flg =false;
+bool scroll_songs = false;
 
 constexpr int kTensorArenaSize = 60 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
@@ -228,13 +232,15 @@ void playNote(){
 }
 void play_song(int index){
   float k = (song_len[index])*1./16;
-  float speed = song_speed[index]*1./10;
+  float speed = song_speed[index]*1./100;
   float wait_time;
   float a = k;
-  uLCD.cls();
-  uLCD.textbackground_color(BLACK);
-  uLCD.printf("Song Name:\r\n\r\n%s\r\n\r\n",song_name[song_index_playing]);
-  uLCD.printf("Song Length:%d\r\n\r\n",song_len[song_index_playing]);
+  if (in_return_gesture_flg == false && now_loadong_song_flg == false){
+    uLCD.cls();
+    uLCD.textbackground_color(BLACK);
+    uLCD.printf("Song Name:\r\n\r\n%s\r\n\r\n",song_name[song_index_playing]);
+    uLCD.printf("Song Length:%d\r\n\r\n",song_len[song_index_playing]);
+  }
   song_playing_flg = true;
   idC=queue4.call_every(1,playNote);
   for(int i=0;i<song_len[index];i++){  
@@ -243,20 +249,30 @@ void play_song(int index){
     now_taiko_note = taiko[index][i];
     wait_time = note_len[index][i]*speed;
     note_i = i;
-    wait(wait_time-0.1);
+    wait(wait_time-0.05);
     freq = 0;
-    wait(0.1);
-    if(cut_song == true){
-      cut_song = false;
-      break;
-    }
+    wait(0.05);
     if(i+1>=a){
-      uLCD.printf("*");
+      if (in_return_gesture_flg == false && now_loadong_song_flg == false){
+        uLCD.printf("*");
+      }
       a+=k;
     } 
+    if(cut_song == true){
+      break;
+    }
+    
+  }
+  if(song_index_playing == load_song_num-1 && cut_song != true && taiko_or_not == 0){
+    song_index_playing = 0;
+  }
+  else if (song_index_playing<load_song_num-1 && cut_song != true && taiko_or_not == 0){
+    song_index_playing ++;
   }
   note_i = 0;
-  
+  if(taiko_or_not == 0 && cut_song != true){
+    queue5.call(play_song,song_index_playing);
+  }
   if(taiko_or_not == 1){
     for (int i=0;i<song_len[index];i++){
         pc.printf("%d ",correct[i]);
@@ -266,6 +282,7 @@ void play_song(int index){
   }
   taiko_or_not = 0; 
   song_playing_flg = false;
+  cut_song = false;
 } 
 void load_song(int index,int len){
   int i=0;
@@ -417,16 +434,27 @@ void unload_song(){
       delete[] song_name[i];
     }
     delete [] song_name;
-  
+
+    delete [] song_speed;
     delete [] song_len;
     load_song_num = 0;
+    mode = MODE_NON;
+    song_playing_flg = false;
+    song_index_playing = 0;
+    tmp_song_index_playing = 0;
+    cut_song = false;
+    taiko_flg = false;
+    freq = 0;
+    now_taiko_note = 0;
+    note_i = 0;
+    taiko_point = 0;
+    taiko_or_not = 0;
+    tmp_taiko_or_not = 0;
+    taiko_point = 0;
+    taiko_or_not = 0;
+    tmp_taiko_or_not = 0;
   }   
 }
-
-bool comfirm_flg = false;
-bool in_return_gesture_flg =false;
-bool scroll_songs = false;
-
 void print_song_list_page(){
   int page = 0;
   uLCD.cls();
@@ -517,6 +545,56 @@ void print_taiko_or_not(){
     uLCD.textbackground_color(BLACK);
   }
 }
+void print_forward_backward_change_songs(int type){
+  uLCD.cls();
+  uLCD.textbackground_color(BLACK);
+  uLCD.printf("mode select state\n");
+  uLCD.printf("    shake k66f   \n");
+  uLCD.printf("  to select mode \n\n");
+  if(type == 0){
+    if(load_song_num == 0){
+      uLCD.printf("NO SONG \r\n");
+      uLCD.printf("PLEASE LOAD\r\n");
+    }
+    else{
+      uLCD.printf("Now Playing:\r\n\r\n%d\r\n%s\r\n\r\n",song_index_playing+1,song_name[song_index_playing]);
+      uLCD.printf("Backward To:\r\n\r\n");
+      if(song_index_playing==0){
+        uLCD.printf("%d.\r\n%s\r\n\r\n",load_song_num,song_name[load_song_num-1]);
+      }
+      else if(song_index_playing != 0){
+        uLCD.printf("%d.\r\n%s\r\n\r\n",song_index_playing,song_name[song_index_playing-1]);
+      }
+    }
+  }
+  else if (type == 1){
+    if(load_song_num == 0){
+      uLCD.printf("NO SONG \r\n");
+      uLCD.printf("PLEASE LOAD\r\n");
+    }
+    else{
+      uLCD.printf("Now Playing:\r\n\r\n%d.\r\n%s\r\n\r\n",song_index_playing+1,song_name[song_index_playing]);
+      uLCD.printf("Forward To:\r\n\r\n");
+      if(song_index_playing==load_song_num-1){
+        uLCD.printf("%d.\r\n%s\r\n\r\n",1,song_name[0]);
+      }
+      else if(song_index_playing != load_song_num-1){
+        uLCD.printf("%d.\r\n%s\r\n\r\n",song_index_playing+2,song_name[song_index_playing+1]);
+      }
+    }
+  }
+  else if (type == 2){
+    if(load_song_num == 0){
+      uLCD.printf("NO SONG \r\n");
+      uLCD.printf("PLEASE LOAD\r\n\r\n");
+      uLCD.printf("Confirm To Load\r\nSongs\r\n");
+    }
+    else {
+      uLCD.printf("Now Playing:\r\n\r\n%d.\r\n%s\r\n\r\n",song_index_playing+1,song_name[song_index_playing]);
+      uLCD.printf("change song\r\n");
+    } 
+  }
+}
 int new_return_gesture(){
   int cls_count = 0;
   int scroll_page = 0;
@@ -528,9 +606,6 @@ int new_return_gesture(){
   int gesture_index;
   tmp_taiko_or_not = 0;
   tmp_song_index_playing = song_index_playing;
-  if(song_playing_flg==true){
-    cut_song =true;
-  }
   if(scroll_songs == true){
     print_song_list_page();
   }
@@ -611,23 +686,23 @@ int new_return_gesture(){
         }
       }
       else {
-        if(cls_count==6){
-          uLCD.cls();
-          uLCD.printf("mode select state\n");
-          uLCD.printf("    shake k66f   \n");
-          uLCD.printf("  to select mode \n\n");
-          cls_count = 0;
-        }
+        // uLCD.cls();
+        // uLCD.printf("mode select state\n");
+        // uLCD.printf("    shake k66f   \n");
+        // uLCD.printf("  to select mode \n\n");
         if(gesture_index == 0){
-          uLCD.printf("Is your selection\n     backward?\n");
+          //uLCD.printf("Is your selection\n     backward?\n");
+          print_forward_backward_change_songs(0);
         }
         else if (gesture_index == 1){
-          uLCD.printf("Is your selection\n     forward?\n");
+          //uLCD.printf("Is your selection\n     forward?\n");
+          print_forward_backward_change_songs(1);
         }
         else if (gesture_index == 2){
-          uLCD.printf("Is your selection\n   change songs?\n");
+          //uLCD.printf("Is your selection\n   change songs?\n");
+          print_forward_backward_change_songs(2);
         }
-        cls_count++;
+
       }
       tmp_gesture_index = gesture_index;
       error_reporter->Report(config.output_message[gesture_index]);
@@ -639,6 +714,9 @@ int new_return_gesture(){
         if(tmp_gesture_index == 2){
           tmp_song_index_playing == 0;
           now_loadong_song_flg =true;
+          if(song_playing_flg==true){
+            cut_song =true;
+          }
           uLCD.cls();
           uLCD.printf("load song ...\r\n");
           uLCD.printf("select on python\r\n");
@@ -689,7 +767,30 @@ void mode_select(){
       else if(song_index_playing != 0){
         song_index_playing = song_index_playing-1;
       }
-      stop = queue5.call(play_song,song_index_playing);
+      taiko_flg = true;
+      if(song_playing_flg==true){
+          cut_song =true;
+      }
+      taiko_or_not = new_return_gesture();
+      if(taiko_or_not == 1){
+        comfirm_flg = false;
+        uLCD.cls();
+        uLCD.printf("press SW3 to start game\r\n");
+        while(1){
+          if(comfirm_flg == true){
+            break;
+          }
+          else{
+            wait(0.5);
+          }
+        }
+        comfirm_flg = false;
+        stop = queue5.call(play_song,song_index_playing);
+      }
+      else if (taiko_or_not ==0){
+        stop = queue5.call(play_song,song_index_playing);
+      }
+      taiko_flg = false;
     }
     //play_song(song_index_playing);
     mode = MODE_NON;
@@ -705,9 +806,31 @@ void mode_select(){
       else if(song_index_playing != load_song_num-1){
         song_index_playing = song_index_playing+1;
       }
-      stop = queue5.call(play_song,song_index_playing);
+      taiko_flg = true;
+      if(song_playing_flg==true){
+          cut_song =true;
+      }
+      taiko_or_not = new_return_gesture();
+      if(taiko_or_not == 1){
+        comfirm_flg = false;
+        uLCD.cls();
+        uLCD.printf("press SW3 to start game\r\n");
+        while(1){
+          if(comfirm_flg == true){
+            break;
+          }
+          else{
+            wait(0.5);
+          }
+        }
+        comfirm_flg = false;
+        stop = queue5.call(play_song,song_index_playing);
+      }
+      else if (taiko_or_not ==0){
+        stop = queue5.call(play_song,song_index_playing);
+      }
+      taiko_flg = false;
     }  
-    //play_song(song_index_playing);
     mode = MODE_NON;
   }
   else if(mode == MODE_ONE){
@@ -719,6 +842,9 @@ void mode_select(){
     }
     else {    
       taiko_flg = true;
+      if(song_playing_flg==true){
+          cut_song =true;
+      }
       taiko_or_not = new_return_gesture();
       if(taiko_or_not == 1){
         comfirm_flg = false;
